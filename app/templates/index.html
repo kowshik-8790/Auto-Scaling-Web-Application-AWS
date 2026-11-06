@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto Scaling Web App | AWS ALB & EC2</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --bg: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --border: #334155;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+        body { background-color:var(--bg); color:var(--text-main); line-height:1.6; padding:30px 20px; }
+        .container { max-width:850px; margin:0 auto; }
+        header { text-align:center; margin-bottom:30px; }
+        .badge { display:inline-block; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700; margin-bottom:12px; background:rgba(37,99,235,0.2); color:#60a5fa; border:1px solid rgba(37,99,235,0.4); }
+        h1 { font-size:2.2rem; font-weight:800; margin-bottom:8px; }
+        p.subtitle { color:var(--text-muted); font-size:1rem; }
+        .grid-2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:20px; margin-bottom:24px; }
+        .card { background:var(--card-bg); border:1px solid var(--border); border-radius:12px; padding:24px; box-shadow:0 4px 12px rgba(0,0,0,0.2); }
+        .card h2 { font-size:1.15rem; margin-bottom:16px; display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--border); padding-bottom:10px; }
+        .info-row { display:flex; justify-content:space-between; margin-bottom:12px; font-size:0.92rem; }
+        .info-label { color:var(--text-muted); }
+        .info-value { font-weight:600; font-family:monospace; color:#38bdf8; }
+        .metric-bar-bg { width:100%; height:10px; background:#334155; border-radius:5px; overflow:hidden; margin-top:6px; }
+        .metric-bar-fill { height:100%; background:var(--success); transition:width 0.3s ease; }
+        .stress-section { background:var(--card-bg); border:1px solid var(--border); border-radius:12px; padding:28px; text-align:center; margin-top:20px; }
+        .btn-stress { background:var(--danger); color:#fff; border:none; padding:12px 28px; border-radius:8px; font-weight:700; font-size:1rem; cursor:pointer; transition:transform 0.1s, background-color 0.2s; }
+        .btn-stress:hover { background:#dc2626; transform:translateY(-1px); }
+        .status-pill { display:inline-flex; align-items:center; gap:6px; font-size:0.85rem; font-weight:600; padding:4px 10px; border-radius:12px; }
+        .status-healthy { background:rgba(16,185,129,0.15); color:var(--success); border:1px solid rgba(16,185,129,0.3); }
+        footer { text-align:center; margin-top:40px; color:var(--text-muted); font-size:0.85rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <span class="badge">AWS High-Availability &amp; Fault-Tolerant Cluster</span>
+            <h1>Auto Scaling Web Application</h1>
+            <p class="subtitle">Requests distributed across multi-AZ EC2 instances via Application Load Balancer</p>
+        </header>
+
+        <div class="grid-2">
+            <!-- EC2 Instance Identity Card -->
+            <div class="card">
+                <h2>&#128187; Serving EC2 Instance</h2>
+                <div class="info-row">
+                    <span class="info-label">Instance ID:</span>
+                    <span class="info-value">{{ metadata.instance_id }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Availability Zone:</span>
+                    <span class="info-value">{{ metadata.availability_zone }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Private IPv4:</span>
+                    <span class="info-value">{{ metadata.private_ip }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Target Group Health:</span>
+                    <span class="status-pill status-healthy">&#9679; InService (200 OK)</span>
+                </div>
+            </div>
+
+            <!-- Real-Time Metrics Card -->
+            <div class="card">
+                <h2>&#128202; Instance Telemetry</h2>
+                <div class="info-row">
+                    <span class="info-label">CPU Utilization:</span>
+                    <span class="info-value">{{ cpu_percent }}%</span>
+                </div>
+                <div class="metric-bar-bg">
+                    <div class="metric-bar-fill" style="width: {{ cpu_percent }}%; background: {% if cpu_percent > 70 %}var(--danger){% elif cpu_percent > 40 %}var(--warning){% else %}var(--success){% endif %};"></div>
+                </div>
+
+                <div class="info-row" style="margin-top:16px;">
+                    <span class="info-label">Memory Usage:</span>
+                    <span class="info-value">{{ memory_percent }}%</span>
+                </div>
+                <div class="metric-bar-bg">
+                    <div class="metric-bar-fill" style="width: {{ memory_percent }}%;"></div>
+                </div>
+
+                <div class="info-row" style="margin-top:16px;">
+                    <span class="info-label">Request Count on Node:</span>
+                    <span class="info-value">{{ request_count }}</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stress Testing Section -->
+        <div class="stress-section">
+            <h2 style="margin-bottom:10px;">CloudWatch Auto Scaling Validation</h2>
+            <p style="color:var(--text-muted); max-width:600px; margin:0 auto 20px;">
+                Clicking the button below generates CPU computation load on this specific EC2 instance, causing CloudWatch Alarm metric <code>CPUUtilization &gt; 50%</code> to trigger an Auto Scaling Group scale-out event.
+            </p>
+            <form action="/stress" method="POST" onsubmit="alert('Stress load initiated! CloudWatch Alarm will reflect utilization spike within 1-2 minutes.');">
+                <input type="hidden" name="duration" value="90">
+                <button type="submit" class="btn-stress">&#9889; Trigger 90s CPU Stress Load</button>
+            </form>
+        </div>
+
+        <footer>
+            <p>Designed for AWS Cloud Engineer Portfolio &bull; Managed by <strong>ALB + ASG + CloudWatch</strong></p>
+        </footer>
+    </div>
+</body>
+</html>

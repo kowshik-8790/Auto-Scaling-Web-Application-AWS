@@ -1,0 +1,14 @@
+[Unit]
+Description=Gunicorn instance to serve AWS Auto Scaling Web Application
+After=network.target
+
+[Service]
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/opt/aws-webapp
+Environment="PATH=/opt/aws-webapp/venv/bin"
+ExecStart=/opt/aws-webapp/venv/bin/gunicorn --workers 3 --bind 0.0.0.0:80 app:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
